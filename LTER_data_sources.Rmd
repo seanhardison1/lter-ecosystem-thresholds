@@ -1,0 +1,30 @@
+---
+title: "LTER data sources"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(DT)
+library(rhandsontable)
+library(readxl)
+
+sources <- read_excel(here::here("data/LTER_data_sources.xlsx"))
+```
+
+The following table provides a list of key data sets that may be used to model the effects of global-scale climate forcing on indices of primary productivity across LTER sites. Double-click into a cell to access its contents.
+
+```{r, echo = F}
+rhandsontable(sources, width = 1000, height = 800) %>%
+  hot_cols(colWidths = c(80, 200, 150,150, 100, 100, 150)) %>%
+  hot_table(highlightCol = TRUE, highlightRow = TRUE)
+
+# datatable(sources, options = list(
+#   pageLength = 100, deferRender = TRUE,
+#   scrollY = 400,
+#   scroller = TRUE, autowidth = T,fixedColumns = TRUE
+# ))
+
+```
+
