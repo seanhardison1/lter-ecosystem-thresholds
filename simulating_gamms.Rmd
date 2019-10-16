@@ -1,0 +1,121 @@
+---
+title: "Simulating GAMMs"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(mgcv)
+library(mgcViz)
+library(nlme)
+library(tidyverse)
+library(ecodata)
+library(forecast)
+library(patchwork)
+library(magrittr)
+library(itsadug)
+```
+
+#### Model time series to simulate from
+Acquire and process annual primary production data from the Northeast Shelf Large Marine Ecosystem. 
+
+```{r}
+ppd <- chl_pp %>% 
+  filter(Var %in%
+           c("ANNUAL_PPD_MEDIAN SeaWiFS BERENFELD",
+             "ANNUAL_PPD_MEDIAN MODIS-Aqua BERENFELD")) 
+```
+
+Do the same for chlorophyll *a* data.
+
+```{r}
+chl <- chl_pp %>% 
+  filter(Var %in%
+           c("ANNUAL_CHLOR_A_MEDIAN SeaWiFS PAN",
+             "ANNUAL_CHLOR_A_MEDIAN MODIS-Aqua PAN"))
+```
+
+We'll also need to pull SST data. The SST data identified below is the average annual SST for the whole Northeast Shelf. It was extracted from the NOAA extended reconstructed sea surface temperature data set (ERSST V5).
+
+```{r}
+sst <- ecodata::long_term_sst %>% 
+  mutate(id = 1:length(Time))
+```
+
+
+#### Identify time series structures
+
+Using `forecast::auto.arima()`, we model the ARIMA structure of chlorophyll *a* and primary production time series. We can then simulate from the resulting arima models using the `sim.df` defined function below.
+
+```{r}
+sim.pp <- function(mod.tib, var, id){
+  out_df <- NULL
+  for (i in mod.tib$EPU){
+    in_df <- data.frame(Value = as.numeric(simulate(mod.tib[mod.tib$EPU == i,]$mods[[1]])),
+                         EPU = i,
+                         Var = var,
+                         id = paste(i,id))
+    in_df %<>% mutate(Time = 1:nrow(.)) 
+    assign('out_df',rbind(out_df, in_df))
+  }
+  return(out_df)
+}
+
+#SST is non-stationary and trend magnitudes vary across latitudes. We generalize simulations of SST by assuming AR1 error structure and varying trend strength, centered around trend derived from NES SST
+sim.sst <- function(b_adjust = 0, n = n){
+  sst.mod <- gls(Value ~ id, data = sst, corr = corAR1(form = ~id))
+  b1 <- coef(sst.mod)[2]
+  b0 <- coef(sst.mod)[1]
+  sst.sim <- data.frame(Value = b0 + 1:n * (b1 + b_adjust) + rnorm(n),
+                        Time = 1:n)
+  return(sst.sim)
+}
+```
+
+#### Simulate
+
+```{r}
+#Fit ARIMA models to CHL/PP time series
+#Primary production and Chl time series
+pp.arima <- ppd %>% group_by(EPU) %>%
+  do(mods = auto.arima(.$Value, seasonal = F, stepwise = F, approximation = F)) 
+
+chl.arima <- chl %>% group_by(EPU) %>% 
+  do(mods = auto.arima(.$Value, seasonal = F, stepwise = F, approximation = F))
+
+#Simulate SST 8 times, with slope varying from what was calcuated for the NE shelf by about ~ 0.03 degree/year intervals. Starting at estimated_slope - 0.04 degrees/year and ending at estimated_slope + 0.04 degrees/year.
+sst_sims_list <- lapply(seq(-0.04, 0.04, length.out = 8), sim.sst, n = 21) 
+
+sst_sims <- do.call(rbind.data.frame, sst_sims_list) %>% 
+  mutate(site = rep(c("MAB 1", "MAB 2", "GOM 1", "GOM 2",
+                      "GB 1", "GB 2", "SS 1", "SS 2"), each = 21)) %>% 
+  dplyr::rename(SST = Value)
+
+pp_sims <- rbind(sim.pp(pp.arima, var = "PPD", id = 1),sim.pp(pp.arima, var = "PPD", id = 2)) %>% 
+  dplyr::select(site = id, PP = Value, Time)
+
+chl_sims <- rbind(sim.pp(chl.arima, var = "PPD", id = 1),sim.pp(chl.arima, var = "PPD", id = 2)) %>% 
+  dplyr::select(site = id, CHL = Value, Time) 
+```
+
+#### Fit GAMMs to examine pressure-response relationship across "ecosystems"
+
+```{r}
+pp_df <- sst_sims %>% 
+  left_join(.,pp_sims, by = c("site","Time"))   %>% 
+  mutate(site = factor(site))
+
+chl_df <- sst_sims %>% 
+  left_join(.,chl_sims, by = c("site","Time")) %>% 
+  mutate(site = factor(site))
+
+mixed_chl <-
+  bam(CHL ~ s(SST) + s(site, bs='fs', m = 2),
+                  data = chl_df, discrete = TRUE)
+
+mixed_pp <- gam(PP ~ s(SST) + s(site, bs ='re'),
+                  data = pp_df,method = "REML")
+
+plot_smooth(mixed_pp, view = "SST", plot_all = "site")
+```
+
