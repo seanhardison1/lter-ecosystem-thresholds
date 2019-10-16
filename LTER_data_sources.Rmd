@@ -13,7 +13,9 @@ library(readxl)
 sources <- read_excel(here::here("data/LTER_data_sources.xlsx"))
 ```
 
-The following table provides a list of key data sets that may be used to model the effects of global-scale climate forcing on indices of primary productivity across LTER sites. Double-click into a cell to access its contents.
+The following table provides a list of key data sets that may be used to model the effects of global-scale climate forcing on indices of primary productivity across LTER sites. All of the listed LTER Data Sets require the user to adhere to [LTER Data Access Policies](https://lternet.edu/data-access-policy/). Gridded data products acquired from NOAA/OAR/ESRL PSD have no access or use restrictions beyond asking users to cite their [work](https://www.esrl.noaa.gov/psd/data/gridded/). A database specific [Data Use Policy](https://oceaninformatics.ucsd.edu/zoodb/secure/login.php) applies for *ZooDB*, the historical database of zooplankton observations from the California Current Ecosystem. Data from the Northeast Shelf that have been aggregated into the [ecodata](github.com/noaa-edab/ecodata) R package are available for use under a CC0 license.
+
+Double-click into a cell to access its contents. 
 
 ```{r, echo = F}
 rhandsontable(sources, width = 1000, height = 800) %>%
