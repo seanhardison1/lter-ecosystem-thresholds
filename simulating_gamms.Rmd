@@ -49,14 +49,25 @@ Using `forecast::auto.arima()`, we model the ARIMA structure of chlorophyll *a* 
 
 ```{r}
 #SST is non-stationary and trend magnitudes vary across latitudes. We generalize simulations of SST by assuming AR1 error structure and varying trend strength, centered around trend derived from NES SST
-make_sim <- function(df, b0_adjust = rnorm(1)*0.1, b_adjust = 0, n = 21, Site){
-  id <- 1:length(df$Time)
+make_sim <- function(df, b0_adjust = 0, b_adjust = 0, n = 21, Site){
+  df$id <- 1:length(df$Time)
+  site <- unique(df$EPU)
   mod <- gls(Value ~ id, data = df, corr = corAR1(form = ~id))
+  phi <- coef(mod$modelStruct$corStruct, unconstrained = F)
+  ar.error <- arima.sim(list(order = c(1,0,0),
+                          ar = phi),
+                     n=n,
+                     rand.gen=rnorm,
+                     sd = sqrt(var(df$Value)),
+                     n.start = NA)
   b1 <- coef(mod)[2]
   b0 <- coef(mod)[1]
-  sim <- data.frame(Value = b0 + b0_adjust + 1:n * (b1 + b_adjust) + rnorm(n))
+  sim <- data.frame(Value = as.numeric(b0 + b0_adjust + 1:n * (b1 + b_adjust) + ar.error),
+                    Site = site,
+                    Time = as.numeric(1:n))
   return(sim)
 }
+
 ```
 
 #### Simulate
@@ -69,33 +80,55 @@ sst.df <- do.call(rbind.data.frame, sstsimlist) %>%
          Time = rep(1:21, 8)) %>% 
   dplyr::rename(SST = Value)
 
-#Fit GLS models to CHL/PP time series and simulate
-ppsimlist <- lapply(seq(-0.02, 1, length.out = 8), make_sim, df = ppd)
-pp.df <- do.call(rbind.data.frame, ppsimlist) %>% 
-  mutate(Site = factor(rep(paste("Site",letters[1:8]), each = 21)),
-         Time = rep(1:21, 8)) %>% 
-  dplyr::rename(PP = Value)
 
-chlsimlist <- lapply(seq(-0.02, 0.04, length.out = 8), make_sim, df = chl)
-chl.df <- do.call(rbind.data.frame, chlsimlist) %>% 
-  mutate(Site = factor(rep(paste("Site",letters[1:8]), each = 21)),
-         Time = rep(1:21, 8)) %>% 
-  dplyr::rename(CHL = Value)
+#Fit models to time series and simulate
+ppd1 <- ppd %>% 
+  mutate(Time = as.numeric(as.character(Time))) %>% 
+  split(.$EPU) %>% 
+  map_df( ~ make_sim(df = .)) %>% 
+  mutate(Site = rep(paste("Site",letters[1:4]), each = 21))
+
+ppd2 <- ppd %>% 
+  mutate(Time = as.numeric(as.character(Time))) %>% 
+  split(.$EPU) %>% 
+  map_df( ~ make_sim(df = .)) %>% 
+  mutate(Site = rep(paste("Site",letters[5:8]), each = 21))
+
+ppd.sim <- bind_rows(ppd1, ppd2) %>% 
+  mutate(Site = factor(Site)) %>% 
+  dplyr::rename(PPD = Value)
 ```
 
 #### Fit GAMMs to examine pressure-response relationship across "ecosystems"
 
 ```{r}
 pp_merged <- sst.df %>% 
-  left_join(.,pp.df, by = c("Site","Time"))
+  left_join(.,ppd.sim, by = c("Site","Time"))
   
-chl_merged <- sst.df %>% 
-  left_join(.,chl.df, by = c("Site","Time"))
-  
+mixed_pp <- gam(PPD ~ s(SST) + s(SST,Site, bs ='re'),
+                  data = pp_merged,
+                method = "REML",
+                correlation = nlme::corAR1())
 
-mixed_pp <- gam(PP ~ s(SST) + s(SST,Site, bs ='re'),
-                  data = pp_merged,method = "REML")
 
-plot_smooth(mixed_pp, view = "SST", plot_all = "Site")
+par(mfrow = c(1,2),
+    mar = c(4,4,4,1))
+plot_smooth(mixed_pp, view = "SST", plot_all = "Site",
+            col = "#b591c94D", 
+            legend_plot_all = NA, 
+            hide.label = T, main = "Summed and Partial Effects")
+plot_smooth(mixed_pp, view = "SST", 
+            plot_all = "Site", col = "#f5d1424D",
+            rm.ranef = T, legend_plot_all = NA, 
+            hide.label = T,add = T)
+
+plot_smooth(mixed_pp, view = "SST", plot_all = "Site",
+            # col = "#b591c94D", 
+            # legend_plot_all = NA, 
+            hide.label = T, main = "Partial Effects")
+# plot_smooth(mixed_pp, view = "SST", 
+#             plot_all = "Site", col = "#f5d1424D",
+#             rm.ranef = T, legend_plot_all = NA, 
+#             hide.label = T,add = T)
 ```
 
