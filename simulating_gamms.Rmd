@@ -45,10 +45,10 @@ sst <- ecodata::long_term_sst %>%
 
 #### Identify time series structures
 
-Using `forecast::auto.arima()`, we model the ARIMA structure of chlorophyll *a* and primary production time series. We can then simulate from the resulting arima models using the `sim.df` defined function below.
+Using GLS models, we estimated trend and AR(1) correlation structure in time series of chlorophyll *a* and SST in the Northeast Large Marine Ecosystem, and then simulated time series from the fitted models using the `make_sim` function defined below. Simulation models of SST were parameterized with slope terms that varied along the "true" trend estimate of the underlying series. Simulated time series were then fit with GAMMs, where site was included as a random smooth term. 
 
 ```{r}
-#SST is non-stationary and trend magnitudes vary across latitudes. We generalize simulations of SST by assuming AR1 error structure and varying trend strength, centered around trend derived from NES SST
+
 make_sim <- function(df, b0_adjust = 0, b_adjust = 0, n = 21, Site){
   df$id <- 1:length(df$Time)
   site <- unique(df$EPU)
@@ -73,7 +73,8 @@ make_sim <- function(df, b0_adjust = 0, b_adjust = 0, n = 21, Site){
 #### Simulate
 
 ```{r}
-#Simulate SST 8 times, with slope varying from what was calcuated for the NE shelf by about ~ 0.03 degree/year intervals. Starting at estimated_slope - 0.04 degrees/year and ending at estimated_slope + 0.04 degrees/year.
+#SST is non-stationary and trend magnitudes vary across latitudes. We generalize simulations of SST by assuming AR1 error structure and varying trend strength, centered around trend derived from NES SST
+
 sstsimlist <- lapply(seq(-0.04, 0.04, length.out = 8), make_sim, df = sst)
 sst.df <- do.call(rbind.data.frame, sstsimlist) %>% 
   mutate(Site = factor(rep(paste("Site",letters[1:8]), each = 21)),
@@ -81,7 +82,7 @@ sst.df <- do.call(rbind.data.frame, sstsimlist) %>%
   dplyr::rename(SST = Value)
 
 
-#Fit models to time series and simulate
+#Fit models to PPD time series and simulate
 ppd1 <- ppd %>% 
   mutate(Time = as.numeric(as.character(Time))) %>% 
   split(.$EPU) %>% 
